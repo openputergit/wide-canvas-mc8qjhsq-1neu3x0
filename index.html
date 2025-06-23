@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Code Snippets</title>
+    <meta name="description" content="Save, search, and organize your free code snippets easily.">
+    <meta name="keywords" content="free code snippets, code manager, snippet saver, developer tools">
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
+    <style>
+        .snippet-code {
+            font-family: 'Courier New', monospace;
+        }
+        .dark {
+            background-color: #1a1a1a;
+            color: #ffffff;
+        }
+        .dark .snippet-card {
+            background-color: #2d2d2d;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <div class="container mx-auto px-4 py-8">
+        <!-- Header -->
+        <header class="flex justify-between items-center mb-8">
+            <div class="flex items-center">
+                <img src="/codesnippets_logo.png" alt="Code Snippets Logo" class="h-10 w-10 mr-3">
+                <h1 class="text-2xl font-bold">Code Snippets Manager</h1>
+            </div>
+            <div class="flex items-center space-x-4">
+                <button id="themeToggle" class="p-2 rounded-full hover:bg-gray-200">
+                    <i class="bi bi-moon-fill"></i>
+                </button>
+                <button id="loginBtn" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
+                    Login with Google
+                </button>
+                <span id="userInfo" class="hidden">
+                    <span id="userName"></span>
+                    <span id="adminBadge" class="hidden ml-2 bg-yellow-500 text-xs px-2 py-1 rounded">Admin</span>
+                </span>
+            </div>
+        </header>
+
+        <!-- Snippet Creation Form -->
+        <div class="bg-white rounded-lg shadow p-6 mb-8">
+            <h2 class="text-xl font-semibold mb-4">Create New Snippet</h2>
+            <form id="snippetForm" class="space-y-4">
+                <div>
+                    <label class="block mb-2">Code Snippet:</label>
+                    <textarea id="snippetCode" class="w-full h-32 p-2 border rounded snippet-code" required></textarea>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block mb-2">Group/Category:</label>
+                        <input type="text" id="snippetGroup" class="w-full p-2 border rounded" required>
+                    </div>
+                    <div>
+                        <label class="block mb-2">Tags (comma-separated):</label>
+                        <input type="text" id="snippetTags" class="w-full p-2 border rounded">
+                    </div>
+                </div>
+                <button type="submit" class="bg-green-500 text-white px-6 py-2 rounded hover:bg-green-600">
+                    Save Snippet
+                </button>
+            </form>
+        </div>
+
+        <!-- Filters -->
+        <div class="bg-white rounded-lg shadow p-6 mb-8">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <select id="groupFilter" class="p-2 border rounded">
+                    <option value="">All Groups</option>
+                </select>
+                <input type="date" id="dateFilter" class="p-2 border rounded">
+                <select id="sortOrder" class="p-2 border rounded">
+                    <option value="newest">Newest First</option>
+                    <option value="oldest">Oldest First</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Snippets List -->
+        <div id="snippetsList" class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <!-- Snippets will be dynamically inserted here -->
+        </div>
+    </div>
+
+    <script>
+        // Firebase Configuration
+        const firebaseConfig = {
+            // Your Firebase config here
+            apiKey: "AIzaSyD82dFU6Q3y4fsz-Bl_6WqrasVmEqoq_98",
+  authDomain: "code-snippets-7fffa.firebaseapp.com",
+  projectId: "code-snippets-7fffa",
+  storageBucket: "code-snippets-7fffa.firebasestorage.app",
+  messagingSenderId: "744798957952",
+  appId: "1:744798957952:web:a1837440a92b7662d11165"
+        };
+
+        // Initialize Firebase
+        firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+        const db = firebase.firestore();
+        
+        // Auth State Observer
+        auth.onAuthStateChanged((user) => {
+            const loginBtn = document.getElementById('loginBtn');
+            const userInfo = document.getElementById('userInfo');
+            const userName = document.getElementById('userName');
+            const adminBadge = document.getElementById('adminBadge');
+
+            if (user) {
+                loginBtn.classList.add('hidden');
+                userInfo.classList.remove('hidden');
+                userName.textContent = user.email;
+                
+                if (user.email === 'jyshpatil@gmail.com') {
+                    adminBadge.classList.remove('hidden');
+                }
+
+                loadUserSnippets();
+            } else {
+                loginBtn.classList.remove('hidden');
+                userInfo.classList.add('hidden');
+                loadGuestSnippets();
+            }
+        });
+
+        // Login Handler
+        document.getElementById('loginBtn').addEventListener('click', () => {
+            const provider = new firebase.auth.GoogleAuthProvider();
+            auth.signInWithPopup(provider);
+        });
+
+        // Theme Toggle
+        const themeToggle = document.getElementById('themeToggle');
+        themeToggle.addEventListener('click', () => {
+            document.body.classList.toggle('dark');
+            const icon = themeToggle.querySelector('i');
+            icon.classList.toggle('bi-moon-fill');
+            icon.classList.toggle('bi-sun-fill');
+        });
+
+        // Snippet Form Handler
+        document.getElementById('snippetForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const snippet = {
+                code: document.getElementById('snippetCode').value,
+                group: document.getElementById('snippetGroup').value,
+                tags: document.getElementById('snippetTags').value.split(',').map(tag => tag.trim()),
+                createdAt: new Date().toISOString()
+            };
+
+            if (auth.currentUser) {
+                await db.collection('users').doc(auth.currentUser.uid)
+                    .collection('snippets').add(snippet);
+            } else {
+                const guestSnippets = JSON.parse(sessionStorage.getItem('snippets') || '[]');
+                guestSnippets.push(snippet);
+                sessionStorage.setItem('snippets', JSON.stringify(guestSnippets));
+            }
+
+            e.target.reset();
+            loadSnippets();
+        });
+
+        // Load Snippets
+        async function loadSnippets() {
+            const snippetsList = document.getElementById('snippetsList');
+            snippetsList.innerHTML = '';
+            
+            let snippets = [];
+            if (auth.currentUser) {
+                const querySnapshot = await db.collection('users')
+                    .doc(auth.currentUser.uid)
+                    .collection('snippets')
+                    .orderBy('createdAt', 'desc')
+                    .get();
+                
+                snippets = querySnapshot.docs.map(doc => ({
+                    id: doc.id,
+                    ...doc.data()
+                }));
+            } else {
+                snippets = JSON.parse(sessionStorage.getItem('snippets') || '[]');
+            }
+
+            // Apply filters
+            const groupFilter = document.getElementById('groupFilter').value;
+            const dateFilter = document.getElementById('dateFilter').value;
+            const sortOrder = document.getElementById('sortOrder').value;
+
+            if (groupFilter) {
+                snippets = snippets.filter(s => s.group === groupFilter);
+            }
+            if (dateFilter) {
+                snippets = snippets.filter(s => s.createdAt.startsWith(dateFilter));
+            }
+            if (sortOrder === 'oldest') {
+                snippets.reverse();
+            }
+
+            snippets.forEach(snippet => {
+                const card = createSnippetCard(snippet);
+                snippetsList.appendChild(card);
+            });
+
+            updateGroupFilter(snippets);
+        }
+
+        function createSnippetCard(snippet) {
+            const div = document.createElement('div');
+            div.className = 'snippet-card bg-white rounded-lg shadow p-4';
+            div.innerHTML = `
+                <div class="flex justify-between items-start mb-2">
+                    <h3 class="font-semibold">${snippet.group}</h3>
+                    <div class="space-x-2">
+                        <button onclick="copySnippet('${snippet.id}')" class="text-blue-500 hover:text-blue-700">
+                            <i class="bi bi-clipboard"></i>
+                        </button>
+                        <button onclick="deleteSnippet('${snippet.id}')" class="text-red-500 hover:text-red-700">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                    </div>
+                </div>
+                <pre class="snippet-code bg-gray-100 p-3 rounded mb-2 overflow-x-auto">${snippet.code}</pre>
+                <div class="text-sm text-gray-500">
+                    ${new Date(snippet.createdAt).toLocaleString()}
+                </div>
+            `;
+            return div;
+        }
+
+        function updateGroupFilter(snippets) {
+            const groups = [...new Set(snippets.map(s => s.group))];
+            const groupFilter = document.getElementById('groupFilter');
+            groupFilter.innerHTML = '<option value="">All Groups</option>';
+            groups.forEach(group => {
+                groupFilter.innerHTML += `<option value="${group}">${group}</option>`;
+            });
+        }
+
+        // Initialize filters
+        ['groupFilter', 'dateFilter', 'sortOrder'].forEach(id => {
+            document.getElementById(id).addEventListener('change', loadSnippets);
+        });
+
+        // Utility functions
+        function copySnippet(id) {
+            // Implementation
+        }
+
+        function deleteSnippet(id) {
+            // Implementation
+        }
+
+        // Initial load
+        loadSnippets();
+    </script>
+<script>document.body.addEventListener('wheel', e => { if (!e.ctrlKey) return; e.preventDefault(); return }, { passive: false })</script>
+	</body>
+</html>
